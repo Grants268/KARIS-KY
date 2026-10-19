@@ -112,7 +112,7 @@ fn typed_error_codes_cover_allowlist_attestation_and_dust_guards() {
     client.bind_primary_attestation_hash(&digest);
     assert_contract_error(
         client.try_bind_primary_attestation_hash(&digest),
-        EscrowError::PrimaryAttestationAlreadyBound,
+        EscrowError::AttestationHashAlreadyBound,
     );
 
     assert_contract_error(
@@ -159,6 +159,7 @@ fn escrow_error_discriminants_match_canonical_table() {
         (EscrowError::SweepExceedsLiabilityFloor, 42),
         (EscrowError::PrimaryAttestationAlreadyBound, 50),
         (EscrowError::AttestationAppendLogCapacityReached, 51),
+        (EscrowError::AttestationHashAlreadyBound, 53),
         (EscrowError::CollateralAmountNotPositive, 60),
         (EscrowError::CollateralAssetEmpty, 61),
         (EscrowError::CollateralTimestampBackwards, 62),
@@ -216,8 +217,9 @@ fn escrow_error_discriminants_match_canonical_table() {
         (EscrowError::ConcentrationLimitExceeded, 166),
         (EscrowError::ConcentrationInvalidRange, 167),
         (EscrowError::LegalHoldReasonTooLong, 168),
+        (EscrowError::LegalHoldBlocksMutation, 217),
     ];
-    assert_eq!(TABLE.len(), 88);
+    assert_eq!(TABLE.len(), 89);
     for (variant, code) in TABLE {
         assert_eq!(*variant as u32, *code, "discriminant drift for code {code}");
     }
@@ -520,10 +522,7 @@ fn typed_error_codes_cover_range_boundaries() {
         migrate_client.try_migrate(&(SCHEMA_VERSION - 1)),
         EscrowError::MigrationVersionMismatch,
     );
-    assert_contract_error(
-        migrate_client.try_migrate(&SCHEMA_VERSION),
-        EscrowError::AlreadyCurrentSchemaVersion,
-    );
+    assert_eq!(migrate_client.migrate(&SCHEMA_VERSION), SCHEMA_VERSION);
     env.as_contract(&migrate_client.address, || {
         env.storage().instance().set(&DataKey::Version, &0u32);
     });
@@ -810,10 +809,8 @@ fn test_migrate_already_current() {
         &None,
     );
 
-    assert_contract_error(
-        client.try_migrate(&SCHEMA_VERSION),
-        EscrowError::AlreadyCurrentSchemaVersion,
-    );
+    assert_eq!(client.migrate(&SCHEMA_VERSION), SCHEMA_VERSION);
+    assert_eq!(client.get_version_history().len(), 2);
 }
 
 #[test]
@@ -1121,7 +1118,7 @@ fn test_all_getters() {
     assert_eq!(client.get_funding_token(), funding_token);
     assert_eq!(client.get_treasury(), treasury);
     assert_eq!(client.get_registry_ref(), Some(registry));
-    assert_eq!(client.get_version(), 7);
+    assert_eq!(client.get_version(), SCHEMA_VERSION);
     assert!(!client.get_legal_hold());
     assert_eq!(client.get_min_contribution_floor(), 10);
     assert_eq!(client.get_max_unique_investors_cap(), Some(5));
@@ -2440,7 +2437,7 @@ fn test_get_escrow_summary_happy_path() {
     assert_eq!(summary.funding_close_snapshot, EscrowCloseSnapshot::None);
     assert_eq!(summary.unique_funder_count, 0);
     assert!(!summary.is_allowlist_active);
-    assert_eq!(summary.schema_version, 7);
+    assert_eq!(summary.schema_version, SCHEMA_VERSION);
     assert_eq!(
         summary.sme_collateral_commitment,
         CollateralCommitmentSnapshot::None
